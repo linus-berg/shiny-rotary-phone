@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import os
 import time
+import argparse
 import requests
 from pathlib import Path
 from huggingface_hub import snapshot_download
@@ -55,7 +56,11 @@ def main():
     # ==========================================
     # Configuration
     # ==========================================
-    MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"  
+    parser = argparse.ArgumentParser(description="Download and upload model files.")
+    parser.add_argument("model_id", help="The Hugging Face model ID (e.g., 'Qwen/Qwen2.5-0.5B-Instruct')")
+    args = parser.parse_args()
+
+    MODEL_ID = args.model_id
     LOCAL_DIR = "./model_files"
     PROXY_URL = "http://your-proxy-server:port"
     ENDPOINT_URL = "http://localhost:8000/contentListener"
@@ -83,12 +88,13 @@ def main():
     # 3. Traverse and Upload
     print(f"Starting upload to {ENDPOINT_URL}...")
     local_path = Path(LOCAL_DIR)
+    model_path = local_path / MODEL_ID
     
-    if not local_path.exists():
-        print("❌ Error: Download directory does not exist.")
+    if not model_path.exists():
+        print(f"❌ Error: Model directory {model_path} does not exist.")
         return
 
-    for filepath in local_path.rglob('*'):
+    for filepath in model_path.rglob('*'):
         if filepath.is_file():
             relative_path = str(filepath.relative_to(local_path))
             print(f"Uploading {relative_path}...")
