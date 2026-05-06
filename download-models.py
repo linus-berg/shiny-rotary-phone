@@ -55,10 +55,10 @@ def main():
     # ==========================================
     # Configuration
     # ==========================================
-    MODEL_ID = "google/gemma-4-31B-it-assistant"  
+    MODEL_ID = "Qwen/Qwen2.5-0.5B-Instruct"  
     LOCAL_DIR = "./model_files"
     PROXY_URL = "http://your-proxy-server:port"
-    ENDPOINT_URL = "https://your-custom-endpoint.com/upload"
+    ENDPOINT_URL = "http://localhost:8000/contentListener"
     
     CUSTOM_HEADERS = {
         "Authorization": "Bearer YOUR_SECRET_TOKEN",

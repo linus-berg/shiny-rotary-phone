@@ -103,8 +103,19 @@ def generate_configs(base_dir="./model_files"):
 
     # Generate LiteLLM gateway service and link dependencies
     dependencies = "\n".join([f"      - vllm-{sanitize_name(m)}" for m in models])
+    dependencies += "\n      - db"
     
     compose_yaml += f"""
+  db:
+    image: postgres:16-alpine
+    container_name: litellm-db
+    environment:
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: dbpassword9090
+      POSTGRES_DB: litellm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: litellm
@@ -112,9 +123,16 @@ def generate_configs(base_dir="./model_files"):
       - "4000:4000"
     volumes:
       - ./litellm_config.yaml:/app/config.yaml
+    environment:
+      DATABASE_URL: "postgresql://llmproxy:dbpassword9090@db:5432/litellm"
+      LITELLM_MASTER_KEY: "sk-1234"
+      LITELLM_SALT_KEY: "sk-1234"
     command: [ "--config", "/app/config.yaml" ]
     depends_on:
 {dependencies}
+
+volumes:
+  postgres_data:
 """
 
     with open("docker-compose.yml", "w") as f:
