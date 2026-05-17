@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # vLLM Service with Run:ai S3 Streaming
+  vllm-s3-streamer:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-s3-streamer
+    ports:
+      - "8000:8000"
+    environment:
+      # --- MinIO / S3 Credentials ---
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      
+      # --- Connection Settings ---
+      # Point this to your MinIO API endpoint (e.g., http://minio:9000 if in same network)
+      - AWS_ENDPOINT_URL=http://minio:9000
+      - AWS_REGION=us-east-1
+      
+      # --- Run:ai Streamer Specifics ---
+      # Crucial for MinIO: Use path-style addressing (http://host/bucket) 
+      # instead of virtual-host style (http://bucket.host)
+      - RUNAI_STREAMER_S3_USE_VIRTUAL_ADDRESSING=0
+      
+      # Disable EC2 metadata lookups to avoid startup delays
+      - AWS_EC2_METADATA_DISABLED=true
+      
+    command: >
+      --model s3://my-models/Llama-3-8B-Instruct
+      --load-format runai_streamer
+      --model-loader-extra-config '{"concurrency": 16, "distributed": false}'
+      --host 0.0.0.0
+      --port 8000
+      --gpu-memory-utilization 0.9
+      
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    shm_size: '8gb'
+
+  # Example MinIO Service (if you are running it locally)
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+volumes:
+  minio_data:
