@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import os
 import re
+import yaml
 from pathlib import Path
 
 def sanitize_name(name):
@@ -47,96 +48,98 @@ def generate_configs(base_dir="./model_files"):
     # ==========================================
     # 2. Generate litellm_config.yaml
     # ==========================================
-    litellm_yaml = "model_list:\n"
+    litellm_config = {
+        "model_list": []
+    }
     
     for model_folder in models:
         safe_name = sanitize_name(model_folder)
-        litellm_yaml += f"""  - model_name: {safe_name}
-    litellm_params:
-      model: openai/{safe_name}
-      api_base: http://vllm-{safe_name}:8000/v1
-      api_key: "sk-dummy-key"
-"""
+        litellm_config["model_list"].append({
+            "model_name": safe_name,
+            "litellm_params": {
+                "model": f"openai/{safe_name}",
+                "api_base": f"http://vllm-{safe_name}:8000/v1",
+                "api_key": "sk-dummy-key"
+            }
+        })
 
     with open("litellm_config.yaml", "w") as f:
-        f.write(litellm_yaml)
+        yaml.dump(litellm_config, f, default_flow_style=False, sort_keys=False)
     print("✅ Generated: litellm_config.yaml")
 
     # ==========================================
     # 3. Generate docker-compose.yml
     # ==========================================
-    compose_yaml = "services:\n"
+    compose_dict = {
+        "services": {},
+        "volumes": {
+            "postgres_data": None
+        }
+    }
     
     # Generate vLLM services dynamically
     for i, model_folder in enumerate(models):
         safe_name = sanitize_name(model_folder)
         host_port = 8000 + i  # Increment host port starting from 8000
         
-        compose_yaml += f"""
-  vllm-{safe_name}:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-{safe_name}
-    ports:
-      - "{host_port}:8000"
-    volumes:
-      - ./model_files:/model_files
-    command: 
-      - "--model"
-      - "/model_files/{model_folder}"
-      - "--host"
-      - "0.0.0.0"
-      - "--port"
-      - "8000"
-      - "--served-model-name"
-      - "{safe_name}"
-      - "--gpu-memory-utilization"
-      - "{gpu_util}"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    shm_size: '8gb'
-"""
+        compose_dict["services"][f"vllm-{safe_name}"] = {
+            "image": "vllm/vllm-openai:latest",
+            "container_name": f"vllm-{safe_name}",
+            "ports": [f"{host_port}:8000"],
+            "volumes": ["./model_files:/model_files"],
+            "command": [
+                "--model", f"/model_files/{model_folder}",
+                "--host", "0.0.0.0",
+                "--port", "8000",
+                "--served-model-name", safe_name,
+                "--gpu-memory-utilization", str(gpu_util)
+            ],
+            "deploy": {
+                "resources": {
+                    "reservations": {
+                        "devices": [{
+                            "driver": "nvidia",
+                            "count": "all",
+                            "capabilities": ["gpu"]
+                        }]
+                    }
+                }
+            },
+            "shm_size": "8gb"
+        }
 
-    # Generate LiteLLM gateway service and link dependencies
-    dependencies = "\n".join([f"      - vllm-{sanitize_name(m)}" for m in models])
-    dependencies += "\n      - db"
+    # Add DB service
+    compose_dict["services"]["db"] = {
+        "image": "postgres:16-alpine",
+        "container_name": "litellm-db",
+        "environment": {
+            "POSTGRES_USER": "llmproxy",
+            "POSTGRES_PASSWORD": "dbpassword9090",
+            "POSTGRES_DB": "litellm"
+        },
+        "volumes": ["postgres_data:/var/lib/postgresql/data"]
+    }
+
+    # Add LiteLLM service
+    depends_on = [f"vllm-{sanitize_name(m)}" for m in models]
+    depends_on.append("db")
     
-    compose_yaml += f"""
-  db:
-    image: postgres:16-alpine
-    container_name: litellm-db
-    environment:
-      POSTGRES_USER: llmproxy
-      POSTGRES_PASSWORD: dbpassword9090
-      POSTGRES_DB: litellm
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  litellm:
-    image: ghcr.io/berriai/litellm:main-latest
-    container_name: litellm
-    ports:
-      - "4000:4000"
-    volumes:
-      - ./litellm_config.yaml:/app/config.yaml
-    environment:
-      DATABASE_URL: "postgresql://llmproxy:dbpassword9090@db:5432/litellm"
-      LITELLM_MASTER_KEY: "sk-1234"
-      LITELLM_SALT_KEY: "sk-1234"
-    command: [ "--config", "/app/config.yaml" ]
-    depends_on:
-{dependencies}
-
-volumes:
-  postgres_data:
-"""
+    compose_dict["services"]["litellm"] = {
+        "image": "ghcr.io/berriai/litellm:main-latest",
+        "container_name": "litellm",
+        "ports": ["4000:4000"],
+        "volumes": ["./litellm_config.yaml:/app/config.yaml"],
+        "environment": {
+            "DATABASE_URL": "postgresql://llmproxy:dbpassword9090@db:5432/litellm",
+            "LITELLM_MASTER_KEY": "sk-1234",
+            "LITELLM_SALT_KEY": "sk-1234"
+        },
+        "command": ["--config", "/app/config.yaml"],
+        "depends_on": depends_on
+    }
 
     with open("docker-compose.yml", "w") as f:
-        f.write(compose_yaml)
+        yaml.dump(compose_dict, f, default_flow_style=False, sort_keys=False)
     print("✅ Generated: docker-compose.yml")
     print("\n🎉 Configuration generation complete. You can now run: docker-compose up -d")
 
