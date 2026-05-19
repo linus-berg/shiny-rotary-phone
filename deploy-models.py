@@ -2,6 +2,7 @@
 import os
 import re
 import yaml
+import git
 from pathlib import Path
 
 def sanitize_name(name):
@@ -12,7 +13,85 @@ def sanitize_name(name):
     safe_name = re.sub(r'[^a-zA-Z0-9-]', '-', name).lower()
     return re.sub(r'-+', '-', safe_name).strip('-')
 
+def manage_recipes_repo(repo_path="recipes"):
+    repo_url = "https://github.com/vllm-project/recipes.git"
+    if os.path.exists(os.path.join(repo_path, ".git")):
+        print(f"🔄 Updating recipes repository in {repo_path}...")
+        try:
+            repo = git.Repo(repo_path)
+            repo.remotes.origin.pull()
+        except Exception as e:
+            print(f"⚠️ Failed to update recipes repo: {e}")
+    else:
+        print(f"📥 Cloning recipes repository to {repo_path}...")
+        try:
+            git.Repo.clone_from(repo_url, repo_path)
+        except Exception as e:
+            print(f"❌ Failed to clone recipes repo: {e}")
+
+def get_model_args(model_folder, recipes_path="recipes"):
+    # Extract model name from folder (e.g., 'google/gemma-4-31B-it' -> 'gemma-4-31B-it')
+    model_name = Path(model_folder).name
+    
+    # Search for {model_name}.yaml in recipes/models/ and recipe-fallback/
+    search_paths = [
+        Path(recipes_path) / "models",
+        Path("recipe-fallback")
+    ]
+    
+    recipe_file = None
+    for path in search_paths:
+        if not path.exists():
+            continue
+        # Case-insensitive search
+        for p in path.rglob("*.yaml"):
+            if p.stem.lower() == model_name.lower():
+                recipe_file = p
+                break
+        if recipe_file:
+            break
+            
+    if not recipe_file:
+        return []
+
+    print(f"📖 Found recipe for {model_name}: {recipe_file}")
+    try:
+        with open(recipe_file, "r") as f:
+            config = yaml.safe_load(f)
+            
+        extra_args = []
+        features = config.get("features", {})
+        
+        # Collect all args from features to search
+        recipe_args = []
+        tool_calling = features.get("tool_calling", {})
+        if tool_calling:
+            recipe_args.extend(tool_calling.get("args", []))
+        reasoning = features.get("reasoning", {})
+        if reasoning:
+            recipe_args.extend(reasoning.get("args", []))
+
+        # Filter for specific flags
+        if "--tool-call-parser" in recipe_args:
+            idx = recipe_args.index("--tool-call-parser")
+            if idx + 1 < len(recipe_args):
+                extra_args.append("--enable-auto-tool-choice")
+                extra_args.append("--tool-call-parser")
+                extra_args.append(recipe_args[idx + 1])
+
+        if "--reasoning-parser" in recipe_args:
+            idx = recipe_args.index("--reasoning-parser")
+            if idx + 1 < len(recipe_args):
+                extra_args.append("--reasoning-parser")
+                extra_args.append(recipe_args[idx + 1])
+                
+        return extra_args
+    except Exception as e:
+        print(f"⚠️ Error parsing recipe {recipe_file}: {e}")
+        return []
+
 def generate_configs(base_dir="./model_files"):
+    manage_recipes_repo()
     print(f"Scanning directory: {base_dir}")
     base_path = Path(base_dir)
     
@@ -82,6 +161,8 @@ def generate_configs(base_dir="./model_files"):
         safe_name = sanitize_name(model_folder)
         host_port = 8000 + i  # Increment host port starting from 8000
         
+        extra_args = get_model_args(model_folder)
+        
         compose_dict["services"][f"vllm-{safe_name}"] = {
             "image": "vllm/vllm-openai:latest",
             "container_name": f"vllm-{safe_name}",
@@ -93,7 +174,7 @@ def generate_configs(base_dir="./model_files"):
                 "--port", "8000",
                 "--served-model-name", safe_name,
                 "--gpu-memory-utilization", str(gpu_util)
-            ],
+            ] + extra_args,
             "deploy": {
                 "resources": {
                     "reservations": {
