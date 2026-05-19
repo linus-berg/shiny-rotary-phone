@@ -140,7 +140,11 @@ def generate_configs(base_dir="./model_files"):
     # 2. Generate litellm_config.yaml
     # ==========================================
     litellm_config = {
-        "model_list": []
+        "model_list": [],
+        "litellm_settings": {
+            "request_timeout": 1200,
+            "use_chat_completions_url_for_anthropic_messages": True
+        }
     }
     
     for model_folder in models:
