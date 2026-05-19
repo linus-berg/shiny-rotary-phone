@@ -51,45 +51,57 @@ def get_model_args(model_folder, recipes_path="recipes"):
         if recipe_file:
             break
             
-    if not recipe_file:
-        return []
-
-    print(f"📖 Found recipe for {model_name}: {recipe_file}")
-    try:
-        with open(recipe_file, "r") as f:
-            config = yaml.safe_load(f)
-            
-        extra_args = []
-        features = config.get("features", {})
-        
-        # Collect all args from features to search
-        recipe_args = []
-        tool_calling = features.get("tool_calling", {})
-        if tool_calling:
-            recipe_args.extend(tool_calling.get("args", []))
-        reasoning = features.get("reasoning", {})
-        if reasoning:
-            recipe_args.extend(reasoning.get("args", []))
-
-        # Filter for specific flags
-        if "--tool-call-parser" in recipe_args:
-            idx = recipe_args.index("--tool-call-parser")
-            if idx + 1 < len(recipe_args):
-                extra_args.append("--enable-auto-tool-choice")
-                extra_args.append("--tool-call-parser")
-                extra_args.append(recipe_args[idx + 1])
-
-        if "--reasoning-parser" in recipe_args:
-            idx = recipe_args.index("--reasoning-parser")
-            if idx + 1 < len(recipe_args):
-                extra_args.append("--reasoning-parser")
-                extra_args.append(recipe_args[idx + 1])
+    extra_args = []
+    
+    # 1. Process Recipe if found
+    if recipe_file:
+        print(f"📖 Found recipe for {model_name}: {recipe_file}")
+        try:
+            with open(recipe_file, "r") as f:
+                config = yaml.safe_load(f)
                 
-        return extra_args
-    except Exception as e:
-        print(f"⚠️ Error parsing recipe {recipe_file}: {e}")
-        return []
+            features = config.get("features", {})
+            
+            # Collect all args from features to search
+            recipe_args = []
+            tool_calling = features.get("tool_calling", {})
+            if tool_calling:
+                recipe_args.extend(tool_calling.get("args", []))
+            reasoning = features.get("reasoning", {})
+            if reasoning:
+                recipe_args.extend(reasoning.get("args", []))
 
+            # Filter for specific flags
+            if "--tool-call-parser" in recipe_args:
+                idx = recipe_args.index("--tool-call-parser")
+                if idx + 1 < len(recipe_args):
+                    extra_args.append("--enable-auto-tool-choice")
+                    extra_args.append("--tool-call-parser")
+                    extra_args.append(recipe_args[idx + 1])
+
+            if "--reasoning-parser" in recipe_args:
+                idx = recipe_args.index("--reasoning-parser")
+                if idx + 1 < len(recipe_args):
+                    extra_args.append("--reasoning-parser")
+                    extra_args.append(recipe_args[idx + 1])
+        except Exception as e:
+            print(f"⚠️ Error parsing recipe {recipe_file}: {e}")
+
+    # 2. Process Custom Config from config/ directory
+    # Expects config/<Provider>/<ModelName>.yaml
+    custom_config_path = Path("config") / f"{model_folder}.yaml"
+    if custom_config_path.exists():
+        print(f"🛠️ Found custom config for {model_folder}: {custom_config_path}")
+        try:
+            with open(custom_config_path, "r") as f:
+                custom_cfg = yaml.safe_load(f)
+                custom_extra = custom_cfg.get("extra_args", [])
+                if isinstance(custom_extra, list):
+                    extra_args.extend(custom_extra)
+        except Exception as e:
+            print(f"⚠️ Error parsing custom config {custom_config_path}: {e}")
+                
+    return extra_args
 def generate_configs(base_dir="./model_files"):
     manage_recipes_repo()
     print(f"Scanning directory: {base_dir}")
