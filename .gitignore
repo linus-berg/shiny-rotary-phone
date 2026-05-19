@@ -2,3 +2,4 @@ docker-compose.yml
 model_files/
 litellm_config.yaml
 docs/maestro/.workspace-root
+.idea/
