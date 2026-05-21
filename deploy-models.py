@@ -152,7 +152,7 @@ def generate_configs(base_dir="./model_files"):
         litellm_config["model_list"].append({
             "model_name": safe_name,
             "litellm_params": {
-                "model": f"openai/{safe_name}",
+                "model": f"hosted_vllm/{safe_name}",
                 "api_base": f"http://vllm-{safe_name}:8000/v1",
                 "api_key": "sk-dummy-key"
             }
